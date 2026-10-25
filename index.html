@@ -42,44 +42,11 @@
                 <h1 class="h3 mb-1">Prompt Library</h1>
                 <p class="text-secondary mb-0">Save, search, and copy your Draw Things prompts.</p>
             </div>
-            <div class="d-flex gap-2">
-                <button id="passwordToggle" class="btn btn-outline-primary btn-sm d-none">Set / change password</button>
-                <button id="signOut" class="btn btn-outline-secondary btn-sm d-none">Sign out</button>
-            </div>
+
         </header>
         <div id="notice" class="alert d-none" role="status"></div>
         <section id="setup" class="alert alert-warning d-none">
             Add your Supabase project URL and publishable key to <code>config.js</code>, then reload.
-        </section>
-        <section id="login" class="card p-4 d-none">
-            <h2 class="h5">Sign in</h2>
-            <form id="loginForm">
-                <label for="email" class="form-label">Email address</label>
-                <input id="email" type="email" class="form-control mb-3" autocomplete="email" required>
-                <label for="loginPassword" class="form-label">Password</label>
-                <input id="loginPassword" type="password" class="form-control mb-3" autocomplete="current-password"
-                    required>
-                <button class="btn btn-primary" type="submit">Sign in</button>
-            </form>
-            <hr>
-            <p class="text-secondary small mb-2">Don't have a password yet? Use a magic link after the email rate limit
-                resets.</p>
-            <button id="magicLink" class="btn btn-outline-secondary btn-sm">Email me a sign-in link</button>
-        </section>
-        <section id="passwordPanel" class="card p-3 p-md-4 mb-4 d-none">
-            <h2 class="h5">Set or change your password</h2>
-            <p class="text-secondary small">You are signed in. Set a password here, then use it to sign in on your other
-                devices.</p>
-            <form id="passwordForm">
-                <label for="newPassword" class="form-label">New password (12+ characters recommended)</label>
-                <input id="newPassword" type="password" class="form-control mb-3" minlength="8"
-                    autocomplete="new-password" required>
-                <label for="confirmPassword" class="form-label">Confirm password</label>
-                <input id="confirmPassword" type="password" class="form-control mb-3" minlength="8"
-                    autocomplete="new-password" required>
-                <button class="btn btn-primary" type="submit">Save password</button>
-                <button id="closePassword" class="btn btn-outline-secondary" type="button">Cancel</button>
-            </form>
         </section>
         <section id="app" class="d-none">
             <div class="card p-3 p-md-4 mb-4">
@@ -112,7 +79,7 @@
         import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
         const $ = id => document.getElementById(id);
         const show = (id, visible) => $(id).classList.toggle('d-none', !visible);
-        let client, records = [], editingId = null, user = null;
+        let client, records = [], editingId = null;
         function notice(message, type = 'success') {
             $('notice').textContent = message;
             $('notice').className = `alert alert-${type}`;
@@ -122,73 +89,12 @@
         if (!cfg?.url || !cfg?.publishableKey || cfg.url.includes('YOUR_') || cfg.publishableKey.includes('YOUR_')) {
             show('setup', true);
         } else {
-            client = createClient(cfg.url, cfg.publishableKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
-            client.auth.onAuthStateChange((_event, session) => { setTimeout(() => updateSession(session), 0); });
-            const { data, error } = await client.auth.getSession();
-            if (error) errorMessage(error);
-            await updateSession(data?.session);
+            client = createClient(cfg.url, cfg.publishableKey, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+            // Public-library mode: explicitly discard any previous magic-link session.
+            await client.auth.signOut({ scope: 'local' });
+            show('app', true);
+            await load();
         }
-        async function updateSession(session) {
-            const nextUser = session?.user || null;
-            const changed = nextUser?.id !== user?.id;
-            user = nextUser;
-            show('login', !user); show('app', !!user); show('signOut', !!user); show('passwordToggle', !!user); if (!user) show('passwordPanel', false);
-            if (!user) { records = []; render(); return; }
-            if (changed) await load();
-        }
-        $('loginForm').addEventListener('submit', async e => {
-            e.preventDefault();
-            const button = e.target.querySelector('button[type="submit"]');
-            button.disabled = true;
-            try {
-                const { error } = await client.auth.signInWithPassword({
-                    email: $('email').value.trim(), password: $('loginPassword').value
-                });
-                if (error) throw error;
-                $('loginPassword').value = '';
-                notice('Signed in.');
-            } catch (err) { errorMessage(err); }
-            finally { button.disabled = false; }
-        });
-        $('magicLink').addEventListener('click', async () => {
-            const email = $('email').value.trim();
-            if (!email || !$('email').checkValidity()) { notice('Enter a valid email address first.', 'warning'); return; }
-            $('magicLink').disabled = true;
-            try {
-                const { error } = await client.auth.signInWithOtp({
-                    email, options: { shouldCreateUser: false, emailRedirectTo: window.location.origin + window.location.pathname }
-                });
-                if (error) throw error;
-                notice('Check your email for a sign-in link.');
-            } catch (err) { errorMessage(err); }
-            finally { $('magicLink').disabled = false; }
-        });
-        $('passwordToggle').addEventListener('click', () => {
-            show('passwordPanel', true);
-            $('newPassword').focus();
-        });
-        $('closePassword').addEventListener('click', () => {
-            $('passwordForm').reset(); show('passwordPanel', false);
-        });
-        $('passwordForm').addEventListener('submit', async e => {
-            e.preventDefault();
-            const password = $('newPassword').value;
-            if (password !== $('confirmPassword').value) { notice('Passwords do not match.', 'warning'); return; }
-            const button = e.target.querySelector('button[type="submit"]');
-            button.disabled = true;
-            try {
-                const { error } = await client.auth.updateUser({ password });
-                if (error) throw error;
-                $('passwordForm').reset(); show('passwordPanel', false);
-                notice('Password saved. You can now sign in on your iPad using your email and password.');
-            } catch (err) { errorMessage(err); }
-            finally { button.disabled = false; }
-        });
-        $('signOut').addEventListener('click', async () => {
-            const { error } = await client.auth.signOut();
-            if (error) errorMessage(error);
-            else { resetEditor(); notice('Signed out.'); }
-        });
         async function load() {
             const all = [];
             let from = 0;
