@@ -42,7 +42,10 @@
                 <h1 class="h3 mb-1">Prompt Library</h1>
                 <p class="text-secondary mb-0">Save, search, and copy your Draw Things prompts.</p>
             </div>
-            <button id="signOut" class="btn btn-outline-secondary btn-sm d-none">Sign out</button>
+            <div class="d-flex gap-2">
+                <button id="passwordToggle" class="btn btn-outline-primary btn-sm d-none">Set / change password</button>
+                <button id="signOut" class="btn btn-outline-secondary btn-sm d-none">Sign out</button>
+            </div>
         </header>
         <div id="notice" class="alert d-none" role="status"></div>
         <section id="setup" class="alert alert-warning d-none">
@@ -50,11 +53,32 @@
         </section>
         <section id="login" class="card p-4 d-none">
             <h2 class="h5">Sign in</h2>
-            <p class="text-secondary">Enter the email address of your Supabase account. We'll send a login link.</p>
             <form id="loginForm">
                 <label for="email" class="form-label">Email address</label>
                 <input id="email" type="email" class="form-control mb-3" autocomplete="email" required>
-                <button class="btn btn-primary" type="submit">Email me a sign-in link</button>
+                <label for="loginPassword" class="form-label">Password</label>
+                <input id="loginPassword" type="password" class="form-control mb-3" autocomplete="current-password"
+                    required>
+                <button class="btn btn-primary" type="submit">Sign in</button>
+            </form>
+            <hr>
+            <p class="text-secondary small mb-2">Don't have a password yet? Use a magic link after the email rate limit
+                resets.</p>
+            <button id="magicLink" class="btn btn-outline-secondary btn-sm">Email me a sign-in link</button>
+        </section>
+        <section id="passwordPanel" class="card p-3 p-md-4 mb-4 d-none">
+            <h2 class="h5">Set or change your password</h2>
+            <p class="text-secondary small">You are signed in. Set a password here, then use it to sign in on your other
+                devices.</p>
+            <form id="passwordForm">
+                <label for="newPassword" class="form-label">New password (12+ characters recommended)</label>
+                <input id="newPassword" type="password" class="form-control mb-3" minlength="8"
+                    autocomplete="new-password" required>
+                <label for="confirmPassword" class="form-label">Confirm password</label>
+                <input id="confirmPassword" type="password" class="form-control mb-3" minlength="8"
+                    autocomplete="new-password" required>
+                <button class="btn btn-primary" type="submit">Save password</button>
+                <button id="closePassword" class="btn btn-outline-secondary" type="button">Cancel</button>
             </form>
         </section>
         <section id="app" class="d-none">
@@ -108,21 +132,55 @@
             const nextUser = session?.user || null;
             const changed = nextUser?.id !== user?.id;
             user = nextUser;
-            show('login', !user); show('app', !!user); show('signOut', !!user);
+            show('login', !user); show('app', !!user); show('signOut', !!user); show('passwordToggle', !!user); if (!user) show('passwordPanel', false);
             if (!user) { records = []; render(); return; }
             if (changed) await load();
         }
         $('loginForm').addEventListener('submit', async e => {
             e.preventDefault();
-            const button = e.target.querySelector('button');
+            const button = e.target.querySelector('button[type="submit"]');
             button.disabled = true;
             try {
+                const { error } = await client.auth.signInWithPassword({
+                    email: $('email').value.trim(), password: $('loginPassword').value
+                });
+                if (error) throw error;
+                $('loginPassword').value = '';
+                notice('Signed in.');
+            } catch (err) { errorMessage(err); }
+            finally { button.disabled = false; }
+        });
+        $('magicLink').addEventListener('click', async () => {
+            const email = $('email').value.trim();
+            if (!email || !$('email').checkValidity()) { notice('Enter a valid email address first.', 'warning'); return; }
+            $('magicLink').disabled = true;
+            try {
                 const { error } = await client.auth.signInWithOtp({
-                    email: $('email').value.trim(),
-                    options: { shouldCreateUser: false, emailRedirectTo: window.location.origin + window.location.pathname }
+                    email, options: { shouldCreateUser: false, emailRedirectTo: window.location.origin + window.location.pathname }
                 });
                 if (error) throw error;
                 notice('Check your email for a sign-in link.');
+            } catch (err) { errorMessage(err); }
+            finally { $('magicLink').disabled = false; }
+        });
+        $('passwordToggle').addEventListener('click', () => {
+            show('passwordPanel', true);
+            $('newPassword').focus();
+        });
+        $('closePassword').addEventListener('click', () => {
+            $('passwordForm').reset(); show('passwordPanel', false);
+        });
+        $('passwordForm').addEventListener('submit', async e => {
+            e.preventDefault();
+            const password = $('newPassword').value;
+            if (password !== $('confirmPassword').value) { notice('Passwords do not match.', 'warning'); return; }
+            const button = e.target.querySelector('button[type="submit"]');
+            button.disabled = true;
+            try {
+                const { error } = await client.auth.updateUser({ password });
+                if (error) throw error;
+                $('passwordForm').reset(); show('passwordPanel', false);
+                notice('Password saved. You can now sign in on your iPad using your email and password.');
             } catch (err) { errorMessage(err); }
             finally { button.disabled = false; }
         });
